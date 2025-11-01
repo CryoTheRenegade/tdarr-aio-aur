@@ -35,14 +35,38 @@ jobs:
           VERSION="${{ steps.extract_version.outputs.version }}"
           echo "Downloading TDARR version $VERSION"
           
-          wget -q "https://f000.backblazeb2.com/file/tdarrs/versions/${VERSION}/linux_x64/Tdarr_Server.zip" -O Tdarr_Server.zip
-          wget -q "https://f000.backblazeb2.com/file/tdarrs/versions/${VERSION}/linux_x64/Tdarr_Node.zip" -O Tdarr_Node.zip
+          SERVER_URL="https://f000.backblazeb2.com/file/tdarrs/versions/${VERSION}/linux_x64/Tdarr_Server.zip"
+          NODE_URL="https://f000.backblazeb2.com/file/tdarrs/versions/${VERSION}/linux_x64/Tdarr_Node.zip"
           
-          # Verify downloads succeeded
-          if [ ! -f Tdarr_Server.zip ] || [ ! -f Tdarr_Node.zip ]; then
-            echo "Error: Failed to download TDARR files"
+          # Download with better error handling
+          if ! wget --spider "$SERVER_URL" 2>/dev/null; then
+            echo "Error: Server ZIP not found at $SERVER_URL"
+            echo "Version $VERSION may not exist or URL has changed"
             exit 1
           fi
+          
+          if ! wget --spider "$NODE_URL" 2>/dev/null; then
+            echo "Error: Node ZIP not found at $NODE_URL"
+            echo "Version $VERSION may not exist or URL has changed"
+            exit 1
+          fi
+          
+          wget -q "$SERVER_URL" -O Tdarr_Server.zip || exit 1
+          wget -q "$NODE_URL" -O Tdarr_Node.zip || exit 1
+          
+          # Verify downloads succeeded and are not empty
+          if [ ! -f Tdarr_Server.zip ] || [ ! -s Tdarr_Server.zip ]; then
+            echo "Error: Failed to download or Server ZIP is empty"
+            exit 1
+          fi
+          
+          if [ ! -f Tdarr_Node.zip ] || [ ! -s Tdarr_Node.zip ]; then
+            echo "Error: Failed to download or Node ZIP is empty"
+            exit 1
+          fi
+          
+          echo "Download successful"
+          ls -lh Tdarr_*.zip
 
       - name: Calculate SHA256 hashes
         id: calculate_hashes

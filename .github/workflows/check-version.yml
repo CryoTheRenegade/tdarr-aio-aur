@@ -24,14 +24,76 @@ jobs:
           echo "current=$CURRENT_VERSION" >> $GITHUB_OUTPUT
           echo "Current version: $CURRENT_VERSION"
 
-      - name: Check TDARR GitHub releases
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl
+
+      - name: Check TDARR website for latest version
         id: check_releases
         run: |
-          # Try to get latest release from GitHub API
-          LATEST_RELEASE=$(curl -s https://api.github.com/repos/HaveAGitGat/Tdarr/releases/latest | jq -r '.tag_name // .name // empty' | sed 's/^v//' || echo "")
+          echo "Fetching latest version from TDARR website..."
+          
+          LATEST_RELEASE=""
+          
+          # Method 1: Try TDARR download page
+          echo "Trying TDARR download page..."
+          DOWNLOAD_PAGE=$(curl -s -L "https://home.tdarr.io/download" 2>/dev/null || echo "")
+          
+          if [ -n "$DOWNLOAD_PAGE" ]; then
+            # Extract version numbers from the page content
+            # Look for patterns like: 2.49.01, v2.49.01, version 2.49.01, etc.
+            LATEST_RELEASE=$(echo "$DOWNLOAD_PAGE" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -t. -k1,1n -k2,2n -k3,3n -r | head -1 || echo "")
+            
+            if [ -n "$LATEST_RELEASE" ]; then
+              echo "Found version on download page: $LATEST_RELEASE"
+            fi
+          fi
+          
+          # Method 2: Check backblazeb2 by trying incremental version numbers
+          if [ -z "$LATEST_RELEASE" ]; then
+            echo "Trying to discover version via backblazeb2..."
+            CURRENT_MAJOR=$(echo "${{ steps.current_version.outputs.current }}" | cut -d. -f1)
+            CURRENT_MINOR=$(echo "${{ steps.current_version.outputs.current }}" | cut -d. -f2)
+            CURRENT_PATCH=$(echo "${{ steps.current_version.outputs.current }}" | cut -d. -f3 | sed 's/^0*//' | awk '{print int($1)}')
+            
+            # Start from current version and check forward
+            FOUND_VERSION="${{ steps.current_version.outputs.current }}"
+            for i in $(seq 1 20); do
+              TEST_PATCH=$((CURRENT_PATCH + i))
+              # Format patch as 2-digit (01, 02, etc.)
+              TEST_PATCH_FORMATTED=$(printf "%02d" $TEST_PATCH)
+              TEST_VERSION="${CURRENT_MAJOR}.${CURRENT_MINOR}.${TEST_PATCH_FORMATTED}"
+              TEST_URL="https://f000.backblazeb2.com/file/tdarrs/versions/${TEST_VERSION}/linux_x64/Tdarr_Server.zip"
+              
+              if curl -s -f --head "$TEST_URL" > /dev/null 2>&1; then
+                FOUND_VERSION="$TEST_VERSION"
+                echo "Found newer version via backblazeb2: $TEST_VERSION"
+              else
+                break
+              fi
+            done
+            
+            if [ "$FOUND_VERSION" != "${{ steps.current_version.outputs.current }}" ]; then
+              LATEST_RELEASE="$FOUND_VERSION"
+            fi
+          fi
+          
+          # Method 3: Try TDARR docs or other pages
+          if [ -z "$LATEST_RELEASE" ]; then
+            echo "Trying TDARR documentation pages..."
+            DOCS_PAGE=$(curl -s -L "https://docs.tdarr.io" 2>/dev/null || echo "")
+            if [ -n "$DOCS_PAGE" ]; then
+              LATEST_RELEASE=$(echo "$DOCS_PAGE" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -t. -k1,1n -k2,2n -k3,3n -r | head -1 || echo "")
+              if [ -n "$LATEST_RELEASE" ]; then
+                echo "Found version on docs page: $LATEST_RELEASE"
+              fi
+            fi
+          fi
           
           if [ -z "$LATEST_RELEASE" ]; then
-            echo "Could not fetch latest release from GitHub"
+            echo "Warning: Could not determine latest version from TDARR website"
+            echo "Setting latest to current version"
             echo "latest=${{ steps.current_version.outputs.current }}" >> $GITHUB_OUTPUT
             exit 0
           fi
