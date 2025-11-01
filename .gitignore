@@ -1,0 +1,19 @@
+# AUR package build artifacts
+*.pkg.tar*
+*.pkg.tar.xz
+*.pkg.tar.zst
+*.src.tar.gz
+.SRCINFO
+*.log
+
+# Temporary files from workflow downloads
+Tdarr_Server.zip
+Tdarr_Node.zip
+
+# Editor directories
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+

@@ -1,0 +1,147 @@
+name: Update SHA256 Hashes
+
+on:
+  schedule:
+    # Run daily at 00:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  update-hashes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Extract version from PKGBUILD
+        id: extract_version
+        run: |
+          VERSION=$(grep -E '^pkgver=' PKGBUILD | cut -d'=' -f2)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Found version: $VERSION"
+
+      - name: Download TDARR Server and Node
+        run: |
+          VERSION="${{ steps.extract_version.outputs.version }}"
+          echo "Downloading TDARR version $VERSION"
+          
+          wget -q "https://f000.backblazeb2.com/file/tdarrs/versions/${VERSION}/linux_x64/Tdarr_Server.zip" -O Tdarr_Server.zip
+          wget -q "https://f000.backblazeb2.com/file/tdarrs/versions/${VERSION}/linux_x64/Tdarr_Node.zip" -O Tdarr_Node.zip
+          
+          # Verify downloads succeeded
+          if [ ! -f Tdarr_Server.zip ] || [ ! -f Tdarr_Node.zip ]; then
+            echo "Error: Failed to download TDARR files"
+            exit 1
+          fi
+
+      - name: Calculate SHA256 hashes
+        id: calculate_hashes
+        run: |
+          SERVER_HASH=$(sha256sum Tdarr_Server.zip | awk '{print $1}')
+          NODE_HASH=$(sha256sum Tdarr_Node.zip | awk '{print $1}')
+          
+          echo "server_hash=$SERVER_HASH" >> $GITHUB_OUTPUT
+          echo "node_hash=$NODE_HASH" >> $GITHUB_OUTPUT
+          
+          echo "Server hash: $SERVER_HASH"
+          echo "Node hash: $NODE_HASH"
+
+      - name: Update PKGBUILD with new hashes
+        run: |
+          SERVER_HASH="${{ steps.calculate_hashes.outputs.server_hash }}"
+          NODE_HASH="${{ steps.calculate_hashes.outputs.node_hash }}"
+          
+          # Use Python to update the PKGBUILD file properly
+          python3 << EOF
+          server_hash = "${SERVER_HASH}"
+          node_hash = "${NODE_HASH}"
+          
+          with open('PKGBUILD', 'r') as f:
+              content = f.read()
+          
+          # Replace first two 'SKIP' entries in sha256sums array
+          # Pattern: matches 'SKIP' followed by optional comment on same line
+          import re
+          
+          lines = content.split('\n')
+          new_lines = []
+          in_sha256sums = False
+          skip_count = 0
+          
+          for line in lines:
+              if 'sha256sums=(' in line:
+                  in_sha256sums = True
+                  new_lines.append(line)
+              elif in_sha256sums:
+                  stripped = line.strip()
+                  # Match lines like: "  'SKIP'  # Update with: sha256sum Tdarr_Server.zip"
+                  if stripped.startswith("'SKIP'") and skip_count < 2:
+                      if skip_count == 0:
+                          # Preserve indentation from original line
+                          indent = len(line) - len(line.lstrip())
+                          new_lines.append(' ' * indent + f"'{server_hash}'  # Tdarr_Server.zip")
+                          skip_count = 1
+                      elif skip_count == 1:
+                          indent = len(line) - len(line.lstrip())
+                          new_lines.append(' ' * indent + f"'{node_hash}'  # Tdarr_Node.zip")
+                          skip_count = 2
+                  else:
+                      new_lines.append(line)
+                      if stripped == ')':
+                          in_sha256sums = False
+              else:
+                  new_lines.append(line)
+          
+          with open('PKGBUILD', 'w') as f:
+              f.write('\n'.join(new_lines))
+          
+          print(f"Updated PKGBUILD with new SHA256 hashes:")
+          print(f"  Server: {server_hash}")
+          print(f"  Node: {node_hash}")
+          EOF
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if git diff --quiet PKGBUILD; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No changes detected"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Changes detected in PKGBUILD"
+            git diff PKGBUILD
+          fi
+
+      - name: Commit and push changes
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          git add PKGBUILD
+          git commit -m "chore: Update SHA256 hashes for TDARR ${{ steps.extract_version.outputs.version }}"
+          git push
+
+      - name: Create summary
+        if: always()
+        run: |
+          if [ "${{ steps.check_changes.outputs.changed }}" == "true" ]; then
+            echo "## ✅ SHA256 Hashes Updated" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Updated SHA256 hashes for TDARR version ${{ steps.extract_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **Server**: \`${{ steps.calculate_hashes.outputs.server_hash }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Node**: \`${{ steps.calculate_hashes.outputs.node_hash }}\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ℹ️ No Changes" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "SHA256 hashes are already up to date for version ${{ steps.extract_version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          fi
+

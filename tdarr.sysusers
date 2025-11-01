@@ -1,0 +1,3 @@
+# Type Name    ID   GECOS              Home directory        Shell
+u       tdarr   -    "Tdarr daemon"    /var/lib/tdarr        /usr/bin/nologin
+
