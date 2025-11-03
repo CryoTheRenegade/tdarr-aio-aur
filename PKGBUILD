@@ -25,8 +25,8 @@ source=(
 sha256sums=(
   '1dd707d4d5e3e7f5169ff1588254fe36f71f918d3d8feedaab5843e0d4aa2238'  # Tdarr_Server.zip
   '3c714f1f81332e8df3f7d2cda2633cfdec74e0cc51847cd8599ed4d0598eea75'  # Tdarr_Node.zip
-  'SKIP'
-  'SKIP'
+  '1dd707d4d5e3e7f5169ff1588254fe36f71f918d3d8feedaab5843e0d4aa2238'  # Tdarr_Server.zip
+  '3c714f1f81332e8df3f7d2cda2633cfdec74e0cc51847cd8599ed4d0598eea75'  # Tdarr_Node.zip
   'SKIP'
   'SKIP'
 )
